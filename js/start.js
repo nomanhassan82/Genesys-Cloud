@@ -7,7 +7,7 @@ import { LS_STATE_KEY, LS_VERIF_KEY, setCookie, getCookie, hexRand, pkceChalleng
  *   For GitHub Pages in your repo it’s usually:
  *   https://nomanhassan82.github.io/Genesys-Cloud/oauth-callback.html
  */
-const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+const CLIENT_ID = "65287909324-k9k5m3mvtcgmaf6a5ds7nj25a8bip4t6.apps.googleusercontent.com";
 const REDIRECT_URI = "https://nomanhassan82.github.io/Genesys-Cloud/oauth-callback.html";
 
 const debug = (html) => { document.getElementById('debug').innerHTML = html; };
