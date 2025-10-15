@@ -1,1 +1,99 @@
-show-code.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Get Google OAuth Authorization Code (PKCE)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{font-family:system-ui,Arial,sans-serif;margin:24px;max-width:720px}
+    label{display:block;margin:.5rem 0 .25rem;font-weight:600}
+    input,button{padding:.6rem .8rem;border:1px solid #ccc;border-radius:8px;width:100%}
+    button{margin-top:12px;border:0;background:#0b57d0;color:#fff;cursor:pointer}
+    code{background:#f4f4f4;padding:.1rem .3rem;border-radius:4px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    small{opacity:.7}
+  </style>
+</head>
+<body>
+  <h1>Generate Google OAuth <code>code</code> (Authorization Code + PKCE)</h1>
+
+  <label for="clientId">Google OAuth Client ID</label>
+  <input id="clientId" placeholder="YOUR_CLIENT_ID.apps.googleusercontent.com" />
+
+  <div class="row">
+    <div>
+      <label for="scopes">Scopes (space-separated)</label>
+      <input id="scopes" value="openid email profile" />
+    </div>
+    <div>
+      <label for="hd">Hosted domain (optional)</label>
+      <input id="hd" placeholder="e.g. telus.com" />
+    </div>
+  </div>
+
+  <label for="redirect">Redirect URI (auto-filled)</label>
+  <input id="redirect" />
+
+  <button id="go">Get authorization code</button>
+
+  <p><small>Note: This only gets the <code>code</code>. Exchanging the code for tokens must be done on a server.</small></p>
+
+  <script>
+    // Simple store keys
+    const LS_STATE_KEY = "oauth:google:state";
+    const LS_VERIF_KEY = "oauth:google:pkce_verifier";
+
+    // Default redirect = sibling file "show-code.html" in same folder
+    const defaultRedirect = new URL("show-code.html", location.href).href;
+    const redirectEl = document.getElementById("redirect");
+    redirectEl.value = defaultRedirect;
+
+    function randHex(len=32){
+      const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
+      return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+    }
+    async function pkceChallenge(verifier){
+      const data=new TextEncoder().encode(verifier);
+      const digest=await crypto.subtle.digest("SHA-256",data);
+      return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    }
+
+    document.getElementById("go").addEventListener("click", async () => {
+      const clientId = document.getElementById("clientId").value.trim();
+      const scope    = document.getElementById("scopes").value.trim() || "openid email profile";
+      const hd       = document.getElementById("hd").value.trim();
+      const redirect_uri = redirectEl.value.trim();
+
+      if(!clientId){ alert("Please enter your Google OAuth Client ID."); return; }
+      if(!redirect_uri){ alert("Redirect URI is required."); return; }
+
+      // Generate state + PKCE
+      const state = randHex(32);
+      const verifier = randHex(64);
+      const challenge = await pkceChallenge(verifier);
+
+      // Persist for the callback page (to validate/derive)
+      localStorage.setItem(LS_STATE_KEY, state);
+      localStorage.setItem(LS_VERIF_KEY, verifier);
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri,
+        response_type: "code",
+        scope,
+        state,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        // Below two help you get refresh_token if later you exchange on server
+        access_type: "offline",
+        prompt: "consent"
+      });
+      if (hd) params.set("hd", hd);
+
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      window.location.assign(url);
+    });
+  </script>
+</body>
+</html>
