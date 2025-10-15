@@ -14,61 +14,73 @@
   <div id="result"></div>
 
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get('code');
-      const error = urlParams.get('error');
-      const state = urlParams.get('state');
-      const savedState = sessionStorage.getItem('oauth_state');
-      
-      const resultEl = document.getElementById('result');
+  document.addEventListener('DOMContentLoaded', () => {
+    const url = new URL(location.href);
+    const code  = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+    const state = url.searchParams.get('state');
+    const savedState = sessionStorage.getItem('oauth_state');
+    const resultEl = document.getElementById('result');
 
-      // Check for errors first
-      if (error) {
-        resultEl.innerHTML = `Error: ${error}`;
-        return;
-      }
+    if (error) { resultEl.textContent = `Error: ${error}`; return; }
+    if (!state || state !== savedState) { resultEl.textContent = 'Error: Invalid state parameter'; return; }
+    if (!code) { resultEl.textContent = 'Error: No authorization code received'; return; }
 
-      // Verify state token
-      if (!state || state !== savedState) {
-        resultEl.innerHTML = 'Error: Invalid state parameter';
-        return;
-      }
+    resultEl.innerHTML = `
+      <h3>Success!</h3>
+      <p>Authorization code received.</p>
+      <p>Code: <code>${code}</code></p>
+      <p>Now exchanging for access token...</p>
+    `;
 
-      // Success case
-      if (code) {
-        resultEl.innerHTML = `
-          <h3>Success!</h3>
-          <p>Authorization code received.</p>
-          <p>Code: <code>${code}</code></p>
-          <p>Now exchanging for access token...</p>
-        `;
-        
-        // Send code to your backend (example using Fetch API)
-        exchangeCodeForToken(code);
-      } else {
-        resultEl.innerHTML = 'Error: No authorization code received';
-      }
-    });
+    // >>> REPLACE the old fetch with this:
+    exchangeGoogleCodeForGenesysJWT(code);
+  });
 
-    async function exchangeCodeForToken(code) {
-      try {
-        // In production, this should call YOUR backend, not do it client-side
-        const response = await fetch('YOUR_BACKEND_ENDPOINT', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        
-        const data = await response.json();
-        console.log('Token response:', data);
-        
-        // Handle the token response (store securely, redirect, etc.)
-      } catch (err) {
-        console.error('Token exchange failed:', err);
-      }
+  // Call Genesys directly to exchange Google 'code' -> Genesys JWT
+  async function exchangeGoogleCodeForGenesysJWT(googleCode) {
+    // Pick your region API. For CAC1 (your deployment) use:
+    const REGION_API = 'https://api.cac1.pure.cloud';
+
+    // Your web messaging deploymentId
+    const DEPLOYMENT_ID = '52f242c7-8771-4368-b20b-2929a715fedb';
+
+    // Must MATCH the redirect you used with Google
+    const REDIRECT_URI = 'https://nomanhassan82.github.io/Genesys-Cloud/callback.html';
+
+    const body = {
+      deploymentId: DEPLOYMENT_ID,
+      oauth: { code: googleCode, redirectUri: REDIRECT_URI }
+    };
+
+    try {
+      const res = await fetch(`${REGION_API}/api/v2/webdeployments/token/oauthcodegrantjwtexchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data));
+
+      // data.jwt is the value you send as data.code in configureAuthenticatedSession
+      const jwt = data.jwt || data.code || data.token;
+      const refresh = data.refreshToken;
+
+      document.getElementById('result').innerHTML = `
+        <h3>Genesys exchange OK</h3>
+        <p><strong>Genesys JWT (use as <code>data.code</code>):</strong></p>
+        <pre style="text-align:left;white-space:pre-wrap;">${jwt}</pre>
+        ${refresh ? `<p><strong>Refresh token:</strong></p><pre style="text-align:left;white-space:pre-wrap;">${refresh}</pre>` : ''}
+        <p>Next: create a session to get the <code>token</code> and send <code>configureAuthenticatedSession</code> on the WebSocket.</p>
+      `;
+    } catch (e) {
+      console.error('Exchange failed:', e);
+      document.getElementById('result').textContent = `Exchange failed: ${e.message}`;
     }
-  </script>
+  }
+</script>
+
 
   <script type="text/javascript" charset="utf-8">
   (function (g, e, n, es, ys) {
@@ -88,4 +100,5 @@
   
 </body>
 </html>
+
 
