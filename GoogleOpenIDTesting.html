@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google OAuth 2.0 Example</title>
+  <style>
+    /* Your existing styles remain the same */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Google OAuth 2.0 Login Testing with Genesys</h2>
+    <button id="loginBtn">
+      Sign in with Google
+    </button>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    // Google OAuth 2.0 Configuration
+    const GOOGLE_CLIENT_ID = '65287909324-k9k5m3mvtcgmaf6a5ds7nj25a8bip4t6.apps.googleusercontent.com';
+    
+    // 1. Fix: Use exact redirect URI that matches Google Cloud Console
+    const REDIRECT_URI = 'https://nomanhassan82.github.io/NomanWorkGC/callback.html'; 
+    
+    // 2. Fix: Store state token in sessionStorage for callback page access
+    const STATE_TOKEN = Math.random().toString(36).substring(2);
+    sessionStorage.setItem('oauth_state', STATE_TOKEN);
+
+    document.getElementById('loginBtn').addEventListener('click', () => {
+      const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      
+      // 3. Fix: Use URLSearchParams for proper parameter encoding
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: REDIRECT_URI,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state: STATE_TOKEN,
+        prompt: 'select_account' // Forces account selection each time
+      });
+      
+      authUrl.search = params.toString();
+      window.location.href = authUrl.toString();
+    });
+
+    // This part should ONLY be in callback.html, not in the main page
+  </script>
+</body>
+</html>
