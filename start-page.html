@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sign in with Google (PKCE)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; padding: 32px; }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; }
+    p { opacity: .85; }
+    .card { border: 1px solid rgba(0,0,0,.1); border-radius: 10px; padding: 20px; margin-top: 16px; }
+    label { display:block; margin: 10px 0 6px; font-weight: 600; }
+    input, select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,.2); }
+    button { margin-top: 16px; padding: 12px 16px; border: 0; border-radius: 10px; font-weight: 700; cursor: pointer; }
+    button[disabled] { opacity:.5; cursor:not-allowed; }
+    code { padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.06); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .muted { font-size: .9rem; opacity: .75; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Google OAuth 2.0 Start (PKCE + State)</h1>
+    <p class="muted">This page creates <code>state</code> and a PKCE verifier, stores them in <code>localStorage</code> and cookies, then redirects to Google.</p>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="env">Environment</label>
+          <select id="env">
+            <option value="local">Local</option>
+            <option value="stg">Staging</option>
+            <option value="prd">Production</option>
+          </select>
+        </div>
+        <div>
+          <label for="scopes">Scopes (space-separated)</label>
+          <input id="scopes" value="openid email profile" />
+        </div>
+      </div>
+
+      <label for="forcePrompt">
+        <input type="checkbox" id="forcePrompt" checked />
+        Always show consent screen (<code>prompt=consent</code>)
+      </label>
+      <label for="offline">
+        <input type="checkbox" id="offline" checked />
+        Request refresh token (<code>access_type=offline</code>)
+      </label>
+
+      <button id="signin">Continue with Google</button>
+      <div class="muted">After you sign in, Google will redirect to your <code>oauth-callback.html</code>.</div>
+    </div>
+
+    <div class="card">
+      <strong>Debug / Values stored</strong>
+      <div class="muted" id="debug"></div>
+    </div>
+  </div>
+
+  <script>
+    // ======== CONFIGURE THESE ========
+    const CLIENT_ID = "863414079250-983esis6clsd011jdsb2f00qnehsjvmn.apps.googleusercontent.com";
+    // Must exactly match what you registered in Google Cloud Console
+    const redirectUris = {
+      local: "http://localhost:5500/oauth-callback.html",
+      stg:   "https://stg.yourdomain.com/oauth-callback.html",
+      prd:   "https://yourdomain.com/oauth-callback.html"
+    };
+
+    // ======== KEYS ========
+    const LS_STATE_KEY  = "oauth:google:state";
+    const LS_VERIF_KEY  = "oauth:google:pkce_verifier";
+    const LS_ENV_KEY    = "oauth:google:env";
+
+    // ======== COOKIE HELPERS (SameSite=Lax) ========
+    function setCookie(name, value, maxAgeSeconds = 600) {
+      document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
+    }
+    function getCookie(name) {
+      const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+    function delCookie(name) {
+      document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+    }
+
+    // ======== UTILITIES ========
+    function hexRand(len = 32) {
+      const bytes = new Uint8Array(len);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    async function pkceChallengeFromVerifier(verifier) {
+      const data = new TextEncoder().encode(verifier);
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,""); // base64url
+    }
+
+    function setDebug(html) { document.getElementById("debug").innerHTML = html; }
+    function save(k, v) { localStorage.setItem(k, v); }
+    function get(k) { return localStorage.getItem(k); }
+
+    // ======== MAIN FLOW ========
+    const envSel    = document.getElementById("env");
+    const scopesEl  = document.getElementById("scopes");
+    const promptCk  = document.getElementById("forcePrompt");
+    const offlineCk = document.getElementById("offline");
+    const btn       = document.getElementById("signin");
+
+    // Restore last env
+    const savedEnv = get(LS_ENV_KEY);
+    if (savedEnv && redirectUris[savedEnv]) envSel.value = savedEnv;
+
+    function updateDebug() {
+      setDebug(`
+        <div>Client ID: <code>${CLIENT_ID}</code></div>
+        <div>Redirect URI (${envSel.value}): <code>${redirectUris[envSel.value]}</code></div>
+        <div>Stored state: <code>${get(LS_STATE_KEY) || "(none)"}</code></div>
+        <div>Stored PKCE verifier: <code>${(get(LS_VERIF_KEY) || "(none)")}</code></div>
+        <div>Cookie state: <code>${getCookie('oauth_state') || '(none)'}</code></div>
+      `);
+    }
+    updateDebug();
+
+    let working = false;
+    btn.addEventListener("click", async () => {
+      if (working) return;
+      working = true; btn.disabled = true;
+
+      try {
+        const env = envSel.value;
+        const redirect_uri = redirectUris[env];
+        if (!redirect_uri) throw new Error(`No redirect URI configured for env "${env}"`);
+        save(LS_ENV_KEY, env);
+
+        // 1) Generate state + PKCE verifier
+        const state = hexRand(32);
+        const verifier = hexRand(64);
+        const challenge = await pkceChallengeFromVerifier(verifier);
+
+        // 2) Persist for callback page to validate/read
+        save(LS_STATE_KEY, state);
+        save(LS_VERIF_KEY, verifier);
+        setCookie('oauth_state', state);       // cookie fallback
+        setCookie('pkce_verifier', verifier);  // cookie fallback
+
+        // 3) Build Google authorize URL
+        const params = new URLSearchParams({
+          client_id: CLIENT_ID,
+          redirect_uri,
+          response_type: "code",
+          scope: scopesEl.value.trim() || "openid email profile",
+          state,
+          code_challenge: challenge,
+          code_challenge_method: "S256"
+        });
+        if (offlineCk.checked) params.set("access_type", "offline");
+        if (promptCk.checked)  params.set("prompt", "consent");
+
+        const authorizeUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+        updateDebug();
+        // 4) Redirect (same tab; same origin storage continuity)
+        window.location.assign(authorizeUrl);
+      } catch (e) {
+        alert("Failed to start OAuth: " + e.message);
+        working = false; btn.disabled = false;
+      }
+    });
+
+    // Optional: clear previous run
+    // localStorage.removeItem(LS_STATE_KEY);
+    // localStorage.removeItem(LS_VERIF_KEY);
+    // delCookie('oauth_state'); delCookie('pkce_verifier');
+  </script>
+</body>
+</html>
