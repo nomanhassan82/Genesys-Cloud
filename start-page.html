@@ -4,97 +4,29 @@
   <meta charset="utf-8" />
   <title>Sign in with Google (PKCE)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preload" href="./js/start.js" as="script" />
   <style>
     :root { color-scheme: light dark; }
     body { font-family: system-ui, Arial, sans-serif; margin: 0; padding: 32px; }
     .wrap { max-width: 720px; margin: 0 auto; }
     h1 { margin: 0 0 8px; font-size: 1.4rem; }
-    p { opacity: .85; }
     .card { border: 1px solid rgba(0,0,0,.1); border-radius: 10px; padding: 20px; margin-top: 16px; }
     button { margin-top: 16px; padding: 12px 16px; border: 0; border-radius: 10px; font-weight: 700; cursor: pointer; }
     code { padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.06); }
-    .muted { font-size: .9rem; opacity: .75; margin-top: 12px; }
-    #debug { margin-top: 8px; }
+    #debug { margin-top: 8px; opacity: .8; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Google OAuth 2.0 Start (PKCE + State)</h1>
-    <p class="muted">Generates <code>state</code> and PKCE verifier, stores them, then redirects to Google.</p>
-
+    <h1>Google OAuth 2.0 (PKCE + state)</h1>
     <div class="card">
       <button id="signin">Continue with Google</button>
-      <div class="muted">You will be redirected to <code>oauth-callback.html</code> on this site.</div>
-      <div id="debug" class="muted"></div>
+      <div class="muted">Redirects to <code>oauth-callback.html</code> on this site.</div>
+      <div id="debug"></div>
     </div>
   </div>
 
-  <script>
-    // ======== CONFIGURE THESE ========
-    const CLIENT_ID = "65287909324-k9k5m3mvtcgmaf6a5ds7nj25a8bip4t6.apps.googleusercontent.com"; // <-- set this
-    const REDIRECT_URI = "https://nomanhassan82.github.io/Genesys-Cloud/oauth-callback.html"; // EXACT match in Google Console
-
-    // ======== STORAGE KEYS ========
-    const LS_STATE_KEY = "oauth:google:state";
-    const LS_VERIF_KEY = "oauth:google:pkce_verifier";
-
-    // ======== COOKIE HELPERS (SameSite=Lax) ========
-    function setCookie(name, value, maxAgeSeconds = 600) {
-      document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
-    }
-    function getCookie(name) {
-      const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-      return m ? decodeURIComponent(m[1]) : null;
-    }
-
-    // ======== UTILITIES ========
-    function hexRand(len = 32) {
-      const bytes = new Uint8Array(len);
-      crypto.getRandomValues(bytes);
-      return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-    }
-    async function pkceChallengeFromVerifier(verifier) {
-      const data = new TextEncoder().encode(verifier);
-      const digest = await crypto.subtle.digest("SHA-256", data);
-      return btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,""); // base64url
-    }
-    function debug(html) { document.getElementById("debug").innerHTML = html; }
-
-    document.getElementById("signin").addEventListener("click", async () => {
-      const state = hexRand(32);
-      const verifier = hexRand(64);
-      const challenge = await pkceChallengeFromVerifier(verifier);
-
-      // Persist for callback
-      localStorage.setItem(LS_STATE_KEY, state);
-      localStorage.setItem(LS_VERIF_KEY, verifier);
-      setCookie("oauth_state", state);
-      setCookie("pkce_verifier", verifier);
-
-      const params = new URLSearchParams({
-        client_id: CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
-        response_type: "code",
-        scope: "openid email profile",
-        state,
-        code_challenge: challenge,
-        code_challenge_method: "S256",
-        access_type: "offline",
-        prompt: "consent"
-      });
-
-      const authorizeUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-      debug(`
-        <div>Auth URL built.</div>
-        <div>State: <code>${state}</code></div>
-        <div>Verifier: <code>${verifier}</code></div>
-        <div>Cookie state: <code>${getCookie('oauth_state') || '(none)'}</code></div>
-      `);
-
-      // Redirect (same tab)
-      window.location.assign(authorizeUrl);
-    });
-  </script>
+  <!-- ES module (loads after HTML parse by default) -->
+  <script type="module" src="./js/start.js"></script>
 </body>
 </html>
