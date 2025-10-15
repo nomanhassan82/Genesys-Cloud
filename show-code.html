@@ -1,99 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Get Google OAuth Authorization Code (PKCE)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8"/>
+  <title>Show Authorization Code</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,Arial,sans-serif;margin:24px;max-width:720px}
-    label{display:block;margin:.5rem 0 .25rem;font-weight:600}
-    input,button{padding:.6rem .8rem;border:1px solid #ccc;border-radius:8px;width:100%}
-    button{margin-top:12px;border:0;background:#0b57d0;color:#fff;cursor:pointer}
-    code{background:#f4f4f4;padding:.1rem .3rem;border-radius:4px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    small{opacity:.7}
+    :root { color-scheme: light dark; }
+    body{font-family:system-ui,Arial,sans-serif;margin:24px;max-width:760px}
+    #box{background:#f4f4f4;border-radius:12px;padding:16px;margin-top:12px}
+    code{word-break:break-all}
+    .err{color:#b00020}
+    .ok{color:#0b7d2b}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    button{padding:.55rem .8rem;border:1px solid #bbb;border-radius:10px;cursor:pointer}
+    pre{white-space:pre-wrap}
+    .muted{opacity:.75}
   </style>
 </head>
 <body>
-  <h1>Generate Google OAuth <code>code</code> (Authorization Code + PKCE)</h1>
-
-  <label for="clientId">Google OAuth Client ID</label>
-  <input id="clientId" placeholder="65287909324-k9k5m3mvtcgmaf6a5ds7nj25a8bip4t6.apps.googleusercontent.com" />
-
-  <div class="row">
-    <div>
-      <label for="scopes">Scopes (space-separated)</label>
-      <input id="scopes" value="openid email profile" />
-    </div>
-    <div>
-      <label for="hd">Hosted domain (optional)</label>
-      <input id="hd" placeholder="e.g. telus.com" />
-    </div>
-  </div>
-
-  <label for="redirect">Redirect URI (auto-filled)</label>
-  <input id="redirect" />
-
-  <button id="go">Get authorization code</button>
-
-  <p><small>Note: This only gets the <code>code</code>. Exchanging the code for tokens must be done on a server.</small></p>
+  <h1>Authorization Code Result</h1>
+  <div id="box">Processing…</div>
 
   <script>
-    // Simple store keys
     const LS_STATE_KEY = "oauth:google:state";
     const LS_VERIF_KEY = "oauth:google:pkce_verifier";
+    const LS_CLIENT_ID = "oauth:google:client_id";
+    const LS_REDIRECT  = "oauth:google:redirect_uri";
 
-    // Default redirect = sibling file "show-code.html" in same folder
-    const defaultRedirect = new URL("show-code.html", location.href).href;
-    const redirectEl = document.getElementById("redirect");
-    redirectEl.value = defaultRedirect;
+    const box = document.getElementById("box");
+    const url = new URL(location.href);
+    const code  = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
 
-    function randHex(len=32){
-      const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
-      return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
-    }
-    async function pkceChallenge(verifier){
-      const data=new TextEncoder().encode(verifier);
-      const digest=await crypto.subtle.digest("SHA-256",data);
-      return btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-    }
+    const savedState = localStorage.getItem(LS_STATE_KEY) || "";
+    const verifier   = localStorage.getItem(LS_VERIF_KEY) || "";
+    const clientId   = localStorage.getItem(LS_CLIENT_ID) || "";
+    const redirectUri= localStorage.getItem(LS_REDIRECT)  || (location.origin + location.pathname);
 
-    document.getElementById("go").addEventListener("click", async () => {
-      const clientId = document.getElementById("clientId").value.trim();
-      const scope    = document.getElementById("scopes").value.trim() || "openid email profile";
-      const hd       = document.getElementById("hd").value.trim();
-      const redirect_uri = redirectEl.value.trim();
-
-      if(!clientId){ alert("Please enter your Google OAuth Client ID."); return; }
-      if(!redirect_uri){ alert("Redirect URI is required."); return; }
-
-      // Generate state + PKCE
-      const state = randHex(32);
-      const verifier = randHex(64);
-      const challenge = await pkceChallenge(verifier);
-
-      // Persist for the callback page (to validate/derive)
-      localStorage.setItem(LS_STATE_KEY, state);
-      localStorage.setItem(LS_VERIF_KEY, verifier);
-
-      const params = new URLSearchParams({
+    const jsonBlob = () => {
+      const payload = {
+        code,
+        pkce_verifier: verifier,
+        redirect_uri: redirectUri,
         client_id: clientId,
-        redirect_uri,
-        response_type: "code",
-        scope,
-        state,
-        code_challenge: challenge,
-        code_challenge_method: "S256",
-        // Below two help you get refresh_token if later you exchange on server
-        access_type: "offline",
-        prompt: "consent"
-      });
-      if (hd) params.set("hd", hd);
+        state
+      };
+      return new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    };
 
-      const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-      window.location.assign(url);
-    });
+    async function copy(text){
+      try { await navigator.clipboard.writeText(text); alert("Copied!"); }
+      catch(e){ console.error(e); alert("Copy failed. Select and copy manually."); }
+    }
+
+    function downloadJSON() {
+      const blob = jsonBlob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "google-oauth-code-and-verifier.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
+    if (!code) {
+      box.innerHTML = `<div class="err"><strong>Error:</strong> No <code>code</code> in query string.</div>`;
+    } else if (!state || !savedState || state !== savedState) {
+      box.innerHTML = `<div class="err"><strong>Error:</strong> Invalid <code>state</code>.</div>
+        <div class="muted">Returned: <code>${state || "(none)"}</code></div>
+        <div class="muted">Saved: <code>${savedState || "(none)"}</code></div>`;
+    } else {
+      // Clear state to prevent replays; keep verifier so you can use it
+      localStorage.removeItem(LS_STATE_KEY);
+
+      box.innerHTML = `
+        <div class="ok"><strong>Success!</strong> You can now copy or download values.</div>
+
+        <h3>Authorization code</h3>
+        <pre><code id="codeVal">${code}</code></pre>
+        <button id="copyCode">Copy code</button>
+
+        <h3 style="margin-top:18px">PKCE verifier</h3>
+        <pre><code id="verVal">${verifier || "(missing — you must start from get-code.html)"}</code></pre>
+        <button id="copyVer" ${!verifier ? "disabled" : ""}>Copy verifier</button>
+
+        <h3 style="margin-top:18px">Redirect URI used</h3>
+        <pre><code id="redirVal">${redirectUri}</code></pre>
+        <button id="copyRedir">Copy redirect_uri</button>
+
+        <h3 style="margin-top:18px">Client ID</h3>
+        <pre><code id="clientVal">${clientId || "(optional here, but useful server-side)"}</code></pre>
+        <button id="copyClient" ${!clientId ? "disabled" : ""}>Copy client_id</button>
+
+        <div class="row">
+          <button id="download">Download JSON (code + verifier + redirect_uri + client_id + state)</button>
+          <button id="clear">Clear verifier (cleanup)</button>
+        </div>
+        <p class="muted">Exchange the code on your backend with your client secret + this PKCE verifier.</p>
+      `;
+
+      document.getElementById("copyCode").onclick   = () => copy(code);
+      document.getElementById("copyVer").onclick    = () => verifier && copy(verifier);
+      document.getElementById("copyRedir").onclick  = () => copy(redirectUri);
+      document.getElementById("copyClient").onclick = () => clientId && copy(clientId);
+      document.getElementById("download").onclick   = downloadJSON;
+      document.getElementById("clear").onclick      = () => {
+        localStorage.removeItem(LS_VERIF_KEY);
+        alert("Verifier cleared from localStorage.");
+      };
+    }
   </script>
 </body>
 </html>
