@@ -1,1 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Get Google OAuth Authorization Code (PKCE)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body{font-family:system-ui,Arial,sans-serif;margin:24px;max-width:760px}
+    h1{margin:0 0 8px}
+    label{display:block;margin:.7rem 0 .35rem;font-weight:600}
+    input,button{padding:.65rem .8rem;border:1px solid #bbb;border-radius:10px}
+    input{width:100%}
+    button{cursor:pointer}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .muted{opacity:.75;margin-top:.25rem}
+    .card{border:1px solid rgba(0,0,0,.12);border-radius:12px;padding:16px;margin-top:14px}
+    code{background:rgba(0,0,0,.06);padding:0 .35rem;border-radius:6px}
+    .warn{background:#fff3cd;border:1px solid #ffe58f;padding:10px;border-radius:10px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <h1>Generate Google OAuth <code>code</code> (Authorization Code + PKCE)</h1>
+
+  <div class="card">
+    <label for="clientId">Google OAuth Client ID</label>
+    <input id="clientId" placeholder="YOUR_CLIENT_ID.apps.googleusercontent.com" />
+
+    <div class="row">
+      <div>
+        <label for="scopes">Scopes (space-separated)</label>
+        <input id="scopes" value="openid email profile" />
+      </div>
+      <div>
+        <label for="hd">Hosted domain (optional)</label>
+        <input id="hd" placeholder="e.g. telus.com" />
+      </div>
+    </div>
+
+    <label for="redirect">Redirect URI (callback)</label>
+    <input id="redirect" />
+
+    <button id="go" style="margin-top:12px">Get authorization code</button>
+    <div class="muted">This page only gets the <code>code</code>. Token exchange must happen on a server.</div>
+    <div id="debug" class="muted"></div>
+
+    <div class="warn">
+      Add this exact Redirect URI to Google Cloud Console → OAuth Client → <strong>Authorized redirect URIs</strong>.
+    </div>
+  </div>
+
+  <script>
+    // Keys for localStorage
+    const LS_STATE_KEY = "oauth:google:state";
+    const LS_VERIF_KEY = "oauth:google:pkce_verifier";
+    const LS_CLIENT_ID = "oauth:google:client_id";
+    const LS_REDIRECT  = "oauth:google:redirect_uri";
+
+    // Default redirect is sibling "show-code.html"
+    const defaultRedirect = new URL("show-code.html", location.href).href;
+    const redirectEl = document.getElementById("redirect");
+    redirectEl.value = defaultRedirect;
+
+    function randHex(len=32){
+      const bytes=new Uint8Array(len);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+    }
+    async function pkceChallenge(verifier){
+      const data=new TextEncoder().encode(verifier);
+      const digest=await crypto.subtle.digest("SHA-256",data);
+      return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    }
+
+    const dbg = (html)=>document.getElementById("debug").innerHTML=html;
+
+    document.getElementById("go").addEventListener("click", async () => {
+      const clientId = document.getElementById("clientId").value.trim();
+      const scope    = document.getElementById("scopes").value.trim() || "openid email profile";
+      const hd       = document.getElementById("hd").value.trim();
+      const redirect_uri = redirectEl.value.trim();
+
+      if(!clientId){ alert("Please enter your Google OAuth Client ID."); return; }
+      if(!redirect_uri){ alert("Redirect URI is required."); return; }
+
+      // Generate PKCE + state
+      const state = randHex(32);
+      const verifier = randHex(64);
+      const challenge = await pkceChallenge(verifier);
+
+      // Persist for callback to validate/show
+      localStorage.setItem(LS_STATE_KEY, state);
+      localStorage.setItem(LS_VERIF_KEY, verifier);
+      localStorage.setItem(LS_CLIENT_ID, clientId);
+      localStorage.setItem(LS_REDIRECT, redirect_uri);
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri,
+        response_type: "code",
+        scope,
+        state,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        access_type: "offline",
+        prompt: "consent"
+      });
+      if (hd) params.set("hd", hd);
+
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+      dbg(`<div>Auth URL ready. Redirecting…</div>
+           <div>State: <code>${state}</code></div>
+           <div>Verifier (saved): <code>${verifier}</code></div>
+           <div>Redirect: <code>${redirect_uri}</code></div>`);
+
+      window.location.assign(url);
+    });
+  </script>
+</body>
+</html>
 
